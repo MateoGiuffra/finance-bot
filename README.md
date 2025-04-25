@@ -1,4 +1,4 @@
-### README: Telegram Bot for Invoice Processing and Financial Tracking
+### Telegram Bot for Invoice Processing and Financial Tracking
 
 ---
 
