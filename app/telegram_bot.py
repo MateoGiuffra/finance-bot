@@ -5,8 +5,8 @@ from telegram.ext import (
 )
 import os
 from dotenv import load_dotenv
-from FinanceSheetManager import FinanceSheetManager
-from OCR import get_the_ticket_total
+from app.FinanceSheetManager import FinanceSheetManager
+from app.OCR import get_the_ticket_total
 from config.sheet_client import spreadsheet, worksheet
 
 load_dotenv()
