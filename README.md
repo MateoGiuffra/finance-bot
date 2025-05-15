@@ -1,4 +1,4 @@
-### README: Telegram Bot for Invoice Processing and Financial Tracking
+### Telegram Bot for Invoice Processing and Financial Tracking
 
 ---
 
@@ -91,7 +91,7 @@ The bot is built using the following technologies:
 5. **Run the Bot**:  
    Deploy the bot on your server or local machine and start interacting with it via Telegram:
    ```bash
-   python bot.py
+   python -m app.telegram_bot
    ```
 
 ---
