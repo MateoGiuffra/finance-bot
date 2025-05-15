@@ -1,11 +1,8 @@
 from oauth2client.service_account import ServiceAccountCredentials
-from dotenv import load_dotenv
-from decouple import config
+from tickets.app_config import GOOGLE_SHEETS_CREDENTIALS
 import gspread
 import json
 
-load_dotenv() 
-GOOGLE_SHEETS_CREDENTIALS = config("GOOGLE_SHEETS_CREDENTIALS")
 credentials = json.loads(GOOGLE_SHEETS_CREDENTIALS)
 
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']

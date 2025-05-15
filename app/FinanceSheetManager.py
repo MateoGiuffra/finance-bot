@@ -2,29 +2,42 @@ from gspread_formatting import CellFormat, Color, TextFormat, format_cell_range,
 from typing import List
 from datetime import datetime
 from gspread import Cell, Worksheet, Spreadsheet
-
-
+from config.sheet_client import spreadsheet, worksheet
+from tickets.app_config import GOOGLE_SHEETS_CREDENTIALS
+from gspread.exceptions import APIError
 class FinanceSheetManager:
+    TOTAL_COLUMN_NAME = "Total"
+    DATE_COLUMN_NAME  = "Date"
     def __init__(self, name: str, spreadsheet: Spreadsheet, worksheet: Worksheet, columns: list):
         self.name = f"{name} Finance's"
-        self.columns = columns
-        self.columns_length = len(columns)
+        self.set_columns(columns)
         self.spreadsheet = spreadsheet
         self.worksheet = worksheet
 
     def set_columns(self, columns: list):
-        self.columns = columns
-        self.columns_length = len(columns)
-    
+        self.columns = [self.get_column_name_formatted(col) for col in columns]
+        if self.TOTAL_COLUMN_NAME not in self.columns:
+            self.columns.append(self.TOTAL_COLUMN_NAME)
+        self.columns_length = len(self.columns)
+
         
     def sum_or_create(self, value: float, column_name: str):
-        if self.have_to_create_new():
-             self.create_first_sheet()
-        self.sum_value_or_add_row(value, column_name.capitalize())
-        return self.worksheet.url
+        try: 
+            if self.have_to_create_new():
+                 self.create_first_sheet()
+            self.sum_value_or_add_row(value, self.get_column_name_formatted(column_name))
+            return self.worksheet.url
+        except Exception as e:
+            print(f"Error in sum_or_create: {e}")
+            raise RuntimeError("Error in sum_or_create") from e
         
     def have_to_create_new(self) -> bool:
-        return any(ws.title != self.name for ws in self.worksheets()) or not self.get_last_date()
+        try: 
+            self.spreadsheet.add_worksheet(title=self.name, rows=100, cols=(self.columns_length + 10))
+            return True 
+        except APIError as e:
+            if e.code == 400:
+                return False  
     
     def worksheets(self) -> List[Worksheet]:
         return self.spreadsheet.worksheets()
@@ -34,10 +47,10 @@ class FinanceSheetManager:
     
     def create_first_sheet(self):
         self.create_new_profile()
-        dates = self.get_cells_date()
+        date = self.get_cell_date()
         cell_names = self.get_cells_names()
-        zero_values = self.get_first_cells_values()
-        self.worksheet.update_cells(dates + cell_names + zero_values)
+        initial_new_row = self.get_initial_new_row()
+        self.worksheet.update_cells(date + cell_names + initial_new_row)
         self.sort_by_date_desc()
     
     def sum_value_or_add_row(self, value: float, column_name: str):
@@ -45,6 +58,8 @@ class FinanceSheetManager:
         if last_date != self.get_actual_date():
             self.add_new_row()
         self.sum_value_to(value, column_name)
+        self.sum_value_to(value, self.TOTAL_COLUMN_NAME)
+
     
     def get_last_date(self) -> str:
         try: 
@@ -53,19 +68,8 @@ class FinanceSheetManager:
             return None
     
     def add_new_row(self):
-        self.worksheet.append_row([self.get_actual_date(), *[0] * (self.columns_length)])
-        last_row_index = len(self.worksheet.col_values(1))
-
-        number_format = CellFormat(
-            horizontalAlignment="CENTER",
-            verticalAlignment="MIDDLE"
-        )
-
-        format_cell_range(self.worksheet, f"A{last_row_index}", self.get_date_format())
-
-        column_end = chr(ord("A") + self.columns_length - 1)
-        format_cell_range(self.worksheet, f"B{last_row_index}:{column_end}{last_row_index}", number_format)
-
+        new_row = self.get_initial_new_row()
+        self.worksheet.update_cells(new_row)
         self.sort_by_date_desc()
         
     def sum_value_to(self, value: float, column_name: str):
@@ -78,10 +82,10 @@ class FinanceSheetManager:
         col_letter = first_cell[0].upper()
         row_number = first_cell[1:]
         start_col = ord(col_letter)
-        end_col = start_col + length - 1
+        end_col = start_col + length
         return f"{col_letter}{row_number}:{chr(end_col)}{row_number}"
 
-    def get_cells_names(self) -> List[Cell]:
+    def get_format_columns_names(self) -> List[CellFormat]:
         format = CellFormat(
             verticalAlignment="MIDDLE",
             horizontalAlignment="CENTER",
@@ -91,35 +95,26 @@ class FinanceSheetManager:
                 bold=True
             )
         )
-        range_list = self.range_of_columns("B1", self.columns_length)
-        cell_list = self.worksheet.range(range_list)
-        format_cell_range(self.worksheet, range_list, format)
-
-        for cell, column_value in zip(cell_list, self.columns):
-            cell.value = column_value
-        return cell_list
-
-    def get_first_cells_values(self) -> List[Cell]:
-        number_format = CellFormat(
-            verticalAlignment="MIDDLE",
-            horizontalAlignment="CENTER",
-        )
-        number_range = self.range_of_columns("B2", self.columns_length)
-        format_cell_range(self.worksheet, number_range, number_format)
-        cell_number_list = self.worksheet.range(number_range)
-        for cell in cell_number_list:
-            cell.value = 0
-        return cell_number_list
+        return format
+    
+  
 
     def create_new_profile(self):
-        self.worksheet = self.spreadsheet.add_worksheet(title=self.name, rows=100, cols=self.columns_length + 10)
+        try: 
+            self.worksheet = self.spreadsheet.add_worksheet(title=self.name, rows=100, cols=(self.columns_length + 10))
+            print(self.worksheet.__dict__)
+        except APIError as e:
+            if e.code == 400:
+                print("Worksheet already exists. Updating the title.")
+                self.worksheet = self.spreadsheet.worksheet(self.name)
+        # self.worksheet.title = self.name
+        # pass
 
-    def get_cells_date(self) -> List[Cell]:
-        cells_date = self.worksheet.range("A1:A2")
-
+    
+    def get_cell_date(self) -> List[Cell]:
+        cells_date = self.worksheet.range("A1")
         cells_date[0].value = "Date"
-        cells_date[1].value = self.get_actual_date()
-
+       
         format_title = CellFormat(
             horizontalAlignment="CENTER",
             verticalAlignment="MIDDLE",
@@ -131,7 +126,6 @@ class FinanceSheetManager:
         )
 
         format_cell_range(self.worksheet, "A1", format_title)
-        format_cell_range(self.worksheet, "A2", self.get_date_format())
 
         return cells_date
     
@@ -168,11 +162,79 @@ class FinanceSheetManager:
             ]
         }
         self.spreadsheet.batch_update(sort_request)    
+        
+    def get_column_name_formatted(self, column_name: str) -> str:
+        return column_name.capitalize()
     
     def get_url(self) -> str:
-        return self.spreadsheet.url
+        return self.spreadsheet.worksheet(self.name).url
     
-    # TODO: Implement total_category and total methods
+    def total_category(self, category: str) -> float:
+        format_name = self.get_column_name_formatted(category)
+        category_column = self.worksheet.col_values(self.worksheet.find(format_name).col)[1:]
+        return category_column.sum() if category_column else 0.0
     
-    
+    def total(self) -> float:
+        return self.worksheet.col_values(self.worksheet.find(self.TOTAL_COLUMN_NAME).col)[2]
 
+    def get_cells_names(self) -> List[Cell]:
+        format = self.get_format_columns_names()
+        
+        range_list = self.range_of_columns("B1", self.columns_length - 1) # rest 1 for the date
+        cell_list = self.worksheet.range(range_list)
+        format_cell_range(self.worksheet, range_list, format)
+        for i, cell in enumerate(cell_list):
+            try:  
+                if i == self.columns_length: 
+                    break
+                print(self.columns[i])
+                cell.value = self.columns[i]
+               
+            except Exception as e:
+                print(f"Rompio todo en get_cells_names indice {i}: {e}")
+        return cell_list
+
+    def get_initial_new_row(self) -> List[Cell]:
+        number_format = CellFormat(
+            verticalAlignment="MIDDLE",
+            horizontalAlignment="CENTER",
+        )
+        format_title = CellFormat(
+            horizontalAlignment="CENTER",
+            verticalAlignment="MIDDLE",
+            backgroundColor=Color(131/255, 160/255, 206/255),
+            textFormat=TextFormat(
+                foregroundColor=Color(1.0, 1.0, 1.0),
+                bold=True
+            )
+        )
+        number_range = self.range_of_columns("A2", self.columns_length)
+        
+        format_cell_range(self.worksheet, "A1", format_title)
+        format_cell_range(self.worksheet, number_range, number_format)
+        
+        cell_number_list = self.worksheet.range(number_range)
+        for cell in cell_number_list:
+            cell.value = 0
+            
+        cell_number_list[0].value = self.get_actual_date()
+            
+        return cell_number_list
+    
+if __name__ == "__main__":
+    name = "rey"
+    columns = [
+        "comida",
+        "transporte",
+        "entretenimiento",
+        "servicios",
+        "otros"
+    ]
+    finance_manager = FinanceSheetManager(name, spreadsheet, worksheet, columns)
+    finance_manager.sum_or_create(100, "comida")
+
+    # finance_manager.worksheet.title = "mateos"
+    # cell_names = finance_manager.get_cells_names()
+    # initial_new_row = finance_manager.get_new_row()
+    # # print(cell_names, initial_new_row)
+    # worksheet.update_cells(cell_names + initial_new_row)
